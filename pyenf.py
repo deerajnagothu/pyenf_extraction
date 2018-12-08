@@ -4,7 +4,7 @@ from pylab import *
 import numpy as np
 import scipy as sp
 from scipy.io.wavfile import read
-from scipy.signal import freqz
+from scipy import signal
 from scipy.signal import butter, lfilter
 import matplotlib.pyplot as plt
 import wave
@@ -12,9 +12,10 @@ import librosa
 
 # Parameters
 
+ENF_frequency = 60
 sampling_freq = 1000
-lowcut = 59.9
-highcut = 60.1
+lowcut = ENF_frequency - 0.5
+highcut = ENF_frequency + 0.5
 
 class ENF:
     def __init__(self, sampling_freq, filename, lower_freq, upper_freq, overlap):
@@ -105,13 +106,38 @@ class ENF:
         y = lfilter(b,a,data)
         return y
 
+    def plot_stft(self,t,f,Zxx):
+        plt.pcolormesh(t, f, np.abs(Zxx))
+        plt.title("STFT Magnitude")
+        plt.ylabel("Frequency (Hz)")
+        plt.xlabel("Time (sec)")
+        plt.show()
+
+    def stft_check(self, fsignal):
+        amp = 2*np.sqrt(2)
+        f, t, Zxx = signal.stft(fsignal, fs=self.new_sampling_frequency, window='hamm', nperseg=256, noverlap=225,
+                                nfft=8192, padded=False)
+        #f, t, Zxx = signal.stft(fsignal, fs=self.new_sampling_frequency)
+        testing = abs(Zxx[1])
+        #print(len(testing))
+        #print(testing[1])
+        #print(Zxx[488][1].real)
+        #print(len(Zxx[4096]))
+        #print("Zxx = "+ str(size(Zxx)))
+        #print("f = "+ str(size(f)))
+        #print("t = "+ str(size(t)))
+        #self.plot_stft(t,f,Zxx)
+
+        return Zxx,f,t
 
 def main():
+    #plt.close('all')
     #mysignal = ENF(sampling_freq,"Recordings/recorded_frequency.wav", 59.9, 60.1, 9)
-    mysignal = ENF(sampling_freq, "Recordings/Grid_A_P1.wav", 59.9, 60.1, 9)
-    original_sampling_frequency, signal = mysignal.read_initial_data()
+    #mysignal = ENF(sampling_freq, "Recordings/Grid_A_P1.wav", lowcut, highcut, 9)
+    mysignal = ENF(sampling_freq, "Recordings/Recorded_Data_1.wav", lowcut, highcut, 9)
+    original_sampling_frequency, osignal = mysignal.read_initial_data()
     if original_sampling_frequency != sampling_freq:
-        signal = mysignal.down_sample_signal()
+        osignal = mysignal.down_sample_signal()
         print("The given audio file has higher sampling frequency than required. So Downsampling the signal")
     else:
         print("The given audio file has the required sampling frequency, NO downsampling required")
@@ -120,13 +146,41 @@ def main():
     #mysignal.plot_spectrogram()
 
     # To check the frequency analysis of the signal uncomment this line
-    #mysignal.frequency_plot(signal, label="Before Filtering")
+    #mysignal.frequency_plot(osignal, label="Before Filtering")
 
-    filtered_signal = mysignal.butter_bandpass_filter(signal)
+    filtered_signal = mysignal.butter_bandpass_filter(osignal)
 
     # to check if the filtering of the signal work uncomment this line
-    mysignal.frequency_plot(filtered_signal, label="After Filtering")
+    #mysignal.frequency_plot(filtered_signal, label="After Filtering")
+    print(type(filtered_signal))
+    new_filtered_signal = np.split(filtered_signal,100)
+    print(len(new_filtered_signal))
+    enf_signal = []
+    enf_time = []
+    for k in range(0,100):
+        Zxx, f, t = mysignal.stft_check(new_filtered_signal[k])
+        index = []
+        for i in range(0,len(f)):
+            if f[i] > lowcut and f[i] < highcut:
+                index.append(i)
 
+
+
+        #print(index)
+        #print(Zxx[index[1]][1].real)
+        for i in range(0,len(t)):
+            extracted_list = []
+            enf_time.append(t[i])
+            for j in range(0,len(index)):
+                extracted_list.append(abs(Zxx[index[j]][i]))
+            enf_signal.append(max(extracted_list))
+        #print(len(enf_signal))
+
+    plt.plot(enf_signal[0:int(len(enf_signal)/2)])
+    #plt.pcolormesh(t, f, enf_signal )
+    plt.xlabel("Time")
+    plt.ylabel("Frequency")
+    plt.show()
 
 
 if __name__ == '__main__':
