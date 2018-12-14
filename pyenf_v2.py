@@ -51,7 +51,7 @@ class pyENF:
 
     def compute_spectrogam_strips(self):
         # variables declaration
-        number_of_harmonics = len(self.harmonic_multiples)
+        number_of_harmonics = len(self.harmonic_multiples) - 1
         spectro_strips = []
         frame_size = self.frame_size_secs * self.fs
         overlap_amount = self.overlap_amount_secs * self.fs
@@ -67,7 +67,8 @@ class pyENF:
         for frame in range(number_of_frames):
             ending = starting + frame_size
             x = self.signal0[starting:ending]
-            f, t, Pxx[:,frame] = signal.spectrogram(x, window=win, noverlap=self.overlap_amount_secs, nfft=self.nfft, fs=self.fs, mode='psd')
+            f, t, P = signal.spectrogram(x, window=win, noverlap=self.overlap_amount_secs, nfft=self.nfft, fs=self.fs, mode='psd')
+            Pxx[:, frame] = P[:,0]
             starting = starting + shift_amount
 
         # choosing the strips that we need and setting up frequency support
@@ -75,15 +76,29 @@ class pyENF:
         second_index = self.find_closest(f, self.nominal + self.width_band)
         frequency_support = np.zeros(shape=(number_of_harmonics,2))
 
-        
+        for i in range(number_of_harmonics):
+            starting = first_index * self.harmonic_multiples[i+1]
+
+            ending = second_index * self.harmonic_multiples[i+1]
+            spectro_strips.append(Pxx[starting:(ending+1), :])
+
+            frequency_support[i,0] = f[starting]
+            frequency_support[i,1] = f[ending]
+
+        return spectro_strips, frequency_support
 
 
 
 
 
-mysignal = pyENF(filename="recorded_frequency.wav",nominal=60, harmonic_multiples=np.arange(7), duration=2)
+mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=np.arange(7), duration=2)
 
-print(mysignal.filename)
+
 x, fs = mysignal.read_initial_data()
 
+spectro_strip , frequency_support = mysignal.compute_spectrogam_strips()
 
+
+print(np.shape(spectro_strip[1]))
+print(spectro_strip[0])
+print(frequency_support)
