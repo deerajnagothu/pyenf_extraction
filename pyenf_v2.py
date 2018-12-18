@@ -18,8 +18,10 @@ class pyENF:
         self.overlap_amount_secs = overlap_amount_secs
         self.nfft = nfft
         self.nominal = nominal  # the main ENF frequency ~ 60Hz for US and 50Hz for rest of the world
-        self.harmonic_multiples = harmonic_multiples # multiple harmonics to combine them and get better signal estimate
+        self.harmonic_multiples = np.arange(harmonic_multiples+1)
+        self.harmonic_multiples = self.harmonic_multiples[1:len(self.harmonic_multiples)] # multiple harmonics to combine them and get better signal estimate
         self.duration = duration # in minutes to compute weights
+        self.harmonics = np.multiply( self.nominal, self.harmonic_multiples)
 
         # Width band is used to see what frequency range to use for SNR calculations
         self.width_band = width_band # half the width of the band about nominal values eg 1Hz for US ENF, 2 for others.
@@ -51,19 +53,23 @@ class pyENF:
 
     def compute_spectrogam_strips(self):
         # variables declaration
-        number_of_harmonics = len(self.harmonic_multiples) - 1
-        spectro_strips = []
-        frame_size = self.frame_size_secs * self.fs
+        number_of_harmonics = len(self.harmonic_multiples) - 1  # total number of harmonics
+        spectro_strips = []  # collecting the psd strips regarding each selected frequency range around nominal freq
+        frame_size = math.floor(self.frame_size_secs * self.fs)
         overlap_amount = self.overlap_amount_secs * self.fs
         shift_amount = frame_size - overlap_amount
         length_signal = len(self.signal0)
-        number_of_frames = math.ceil( (length_signal - frame_size + 1)/shift_amount )
+
+        # The ENF will have total seconds based on the frame size selected. If frame size is 1 then ENF will have same
+        # seconds as the original recording, else it will follow the following distribution
+        number_of_frames = math.ceil( (length_signal - frame_size + 1)/shift_amount ) # based on given frame size
 
         # Collecting the spectrogram strips for each window in the signal and storing them in the list
+        # The rows change based on the nfft selected. It also effects the resolution of the frequency range
         rows = int(self.nfft/2 + 1)
         starting = 0
-        Pxx = np.zeros(shape=(rows,number_of_frames))
-        win = signal.get_window('hamming',frame_size)
+        Pxx = np.zeros(shape=(rows,number_of_frames)) # declaring the PSD array
+        win = signal.get_window('hamming',frame_size) # creating a hamming window for each frame segment
         for frame in range(number_of_frames):
             ending = starting + frame_size
             x = self.signal0[starting:ending]
@@ -88,10 +94,118 @@ class pyENF:
         return spectro_strips, frequency_support
 
 
+    def compute_combining_weights_from_harmonics(self):
+
+        number_of_duration = math.ceil(len(self.signal0)/(self.duration*60*self.fs))
+        frame_size = math.floor(self.frame_size_secs * self.fs)
+        overlap_amount = self.overlap_amount_secs * self.fs
+        shift_amount = frame_size - overlap_amount
+        number_of_harmonics = len(self.harmonic_multiples)
+        starting_frequency = self.nominal - self.width_band
+        center_frequency = self.nominal
+        initial_first_value = self.nominal - self.width_signal
+        initial_second_value =  self.nominal + self.width_signal
+        weights = np.zeros(shape=(number_of_harmonics,number_of_duration))
+        print(weights)
+        inside_mean = np.zeros(shape=(number_of_harmonics, number_of_duration))
+        outside_mean = np.zeros(shape=(number_of_harmonics, number_of_duration))
+        total_nb_frames = 0
+        All_strips_Cell = []
+
+        for dur in range(number_of_duration):
+            print(dur)
+
+            # dividing the signal based on the duration selected.
+
+            x = self.signal0[(dur*self.duration*60*self.fs): min(len(self.signal0), ((dur+1)*self.duration*60*self.fs + overlap_amount))]
+
+            # getting the spectrogram strips
+            number_of_frames = math.ceil((len(x) - frame_size + 1) / shift_amount)  # based on given frame size
+            # Collecting the spectrogram strips for each window in the signal and storing them in the list
+            # The rows change based on the nfft selected. It also effects the resolution of the frequency range
+            rows = int(self.nfft / 2 + 1)
+            starting = 0
+            Pxx = np.zeros(shape=(rows, number_of_frames))  # declaring the PSD array
+            win = signal.get_window('hamming', frame_size)  # creating a hamming window for each frame segment
+
+            for frame in range(number_of_frames):
+
+                ending = starting + frame_size
+                sig = self.signal0[starting:ending]
+                f, t, P = signal.spectrogram(sig, window=win, noverlap=self.overlap_amount_secs, nfft=self.nfft,
+                                             fs=self.fs, mode='psd')
+                Pxx[:, frame] = P[:, 0]
+                starting = starting + shift_amount
+
+            # getting the harmonic strips
+            width_init = self.find_closest(f, center_frequency) - self.find_closest(f,starting_frequency)
+            HarmonicStrips = np.zeros(shape=((width_init*2*sum(self.harmonic_multiples)),number_of_frames))
+            FreqAxis = np.zeros(shape=((width_init*2*sum(self.harmonic_multiples)),1))
+            resolution = f[1] - f[0]
+
+            starting = 0
+            starting_indices = np.zeros(shape=(number_of_harmonics,1))
+            ending_indices = np.zeros(shape=(number_of_harmonics,1))
+
+            for k in range(number_of_harmonics):
+
+                starting_indices[k] = starting
+                width = width_init * self.harmonic_multiples[k]
+                ending = starting + 2*width
+
+                ending_indices[k] = ending
+
+                tempFreqIndex = round(self.harmonics[k]/resolution)
+
+                st = int(tempFreqIndex - width)
+                en = int(tempFreqIndex + width)
+
+                HarmonicStrips[starting:ending, :] = Pxx[st:en,:]
+                FreqAxis[starting:ending,0] = f[st:en]
+                starting = ending
+
+            All_strips_Cell.append(HarmonicStrips)
+
+            # getting the weights
+
+            for k in range(number_of_harmonics):
+                currStrip = HarmonicStrips[int(starting_indices[k]):int(ending_indices[k]),:]
+                freq_axis = FreqAxis[int(starting_indices[k]):int(ending_indices[k])]
+
+                first_value = initial_first_value * self.harmonic_multiples[k]
+                second_value = initial_second_value * self.harmonic_multiples[k]
+
+                first_index = self.find_closest(freq_axis, first_value)
+                second_index = self.find_closest(freq_axis, second_value)
+
+                #first_index = first_index - 1
+                second_index = second_index + 1
+
+                inside_strip = currStrip[first_index:second_index,:]
+                inside_mean[k,dur] = np.mean(inside_strip)
+                #print(inside_strip)
+                #print("Inside Mean ",k)
+                #print(inside_mean)
+
+                outside_strip1 = currStrip[0:first_index,:]
+                outside_strip2 = currStrip[second_index:len(currStrip),:]
+                outside_mean[k,dur] = np.mean(np.append(outside_strip1,outside_strip2))
+                #print("outside Mean ",k)
+                #print(outside_mean)
+                if inside_mean[k,dur] < outside_mean[k,dur]:
+                    weights[k,dur] = 0
+                else:
+                    weights[k, dur] = inside_mean[k,dur] / outside_mean[k,dur]
+                #print(weights[k,dur])
+
+
+        return weights
 
 
 
-mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=np.arange(7), duration=2)
+
+
+mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=6, duration=2)
 
 
 x, fs = mysignal.read_initial_data()
@@ -99,6 +213,9 @@ x, fs = mysignal.read_initial_data()
 spectro_strip , frequency_support = mysignal.compute_spectrogam_strips()
 
 
-print(np.shape(spectro_strip[1]))
-print(spectro_strip[0])
-print(frequency_support)
+weights = mysignal.compute_combining_weights_from_harmonics()
+
+print(weights)
+
+
+
