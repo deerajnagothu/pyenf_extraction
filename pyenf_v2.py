@@ -53,7 +53,7 @@ class pyENF:
 
     def compute_spectrogam_strips(self):
         # variables declaration
-        number_of_harmonics = len(self.harmonic_multiples) - 1  # total number of harmonics
+        number_of_harmonics = len(self.harmonic_multiples)  # total number of harmonics
         spectro_strips = []  # collecting the psd strips regarding each selected frequency range around nominal freq
         frame_size = math.floor(self.frame_size_secs * self.fs)
         overlap_amount = self.overlap_amount_secs * self.fs
@@ -83,9 +83,9 @@ class pyENF:
         frequency_support = np.zeros(shape=(number_of_harmonics,2))
 
         for i in range(number_of_harmonics):
-            starting = first_index * self.harmonic_multiples[i+1]
+            starting = first_index * self.harmonic_multiples[i]
 
-            ending = second_index * self.harmonic_multiples[i+1]
+            ending = second_index * self.harmonic_multiples[i]
             spectro_strips.append(Pxx[starting:(ending+1), :])
 
             frequency_support[i,0] = f[starting]
@@ -106,7 +106,7 @@ class pyENF:
         initial_first_value = self.nominal - self.width_signal
         initial_second_value =  self.nominal + self.width_signal
         weights = np.zeros(shape=(number_of_harmonics,number_of_duration))
-        print(weights)
+
         inside_mean = np.zeros(shape=(number_of_harmonics, number_of_duration))
         outside_mean = np.zeros(shape=(number_of_harmonics, number_of_duration))
         total_nb_frames = 0
@@ -198,8 +198,42 @@ class pyENF:
                     weights[k, dur] = inside_mean[k,dur] / outside_mean[k,dur]
                 #print(weights[k,dur])
 
+            sum_weights = np.sum(weights[:,dur], axis=0)
+
+            for k in range(number_of_harmonics):
+                weights[k,dur] = (100 * weights[k,dur])/sum_weights
 
         return weights
+
+    def compute_combined_spectrum(self,strips,weights,freq_support):
+
+        #setting up variables
+        number_of_duration = (np.shape(weights))[1]
+        number_of_frames = (np.shape(strips[0]))[1]
+        number_of_frames_per_duration = (self.duration*60)/self.frame_size_secs
+        strip_width = np.shape((strips[self.strip_index]))[0]
+        print(strip_width)
+        OurStripCell = []
+        number_of_signals = np.shape(strips)[0]
+        initial_frequency = frequency_support[0,0]
+
+        # combining all the strips from different signals into one size
+        # the size is determined with strip_index variable and the combination is done for varying duration size since
+        # each duration size has different weights
+
+        begin = 0
+        for dur in range(number_of_duration):
+            number_of_frames_left = number_of_frames - dur * number_of_frames_per_duration
+            OurStrip = np.zeros(shape=(int(strip_width), min(int(number_of_frames_per_duration),int(number_of_frames_left))))
+            endit = begin + (np.shape(OurStrip))[1]
+            for harm in range(number_of_signals):
+                tempStrip = (strips[harm])[:,begin:endit]
+                q = (np.shape(OurStrip))[1]
+                for frame in range(q):
+                    tempo = 0
+
+
+        print(number_of_duration)
 
 
 
@@ -215,7 +249,6 @@ spectro_strip , frequency_support = mysignal.compute_spectrogam_strips()
 
 weights = mysignal.compute_combining_weights_from_harmonics()
 
+mysignal.compute_combined_spectrum(spectro_strip,weights,frequency_support)
+
 print(weights)
-
-
-
