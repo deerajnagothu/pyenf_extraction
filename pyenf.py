@@ -1,193 +1,326 @@
-# Author: Deeraj Nagothu
+# Author Deeraj Nagothu
 
-from pylab import *
-import numpy as np
-import scipy as sp
-from scipy.io.wavfile import read
 from scipy import signal
-from scipy.signal import butter, lfilter
-import matplotlib.pyplot as plt
 import wave
+import numpy as np
+import matplotlib.pyplot as plt
 import librosa
+import math
+from scipy.misc import imresize
 
-# Parameters
+class pyENF:
 
-ENF_frequency = 60
-sampling_freq = 1000
-lowcut = ENF_frequency - 0.5
-highcut = ENF_frequency + 0.5
+    def __init__(self, filename, fs=1000, frame_size_secs=1, overlap_amount_secs=0, nfft=8192, nominal=None, harmonic_multiples=None, duration=None, width_band=1, width_signal=0.02, strip_index=0):
 
-class ENF:
-    def __init__(self, sampling_freq, filename, lower_freq, upper_freq, overlap):
-        self.sampling_freq = sampling_freq  # the sampling frequency minimum required for ananlysis
-        self.filename = filename    # audio .wave recording file
-        self.lower_freq = lower_freq    # lower cutoff frequency. For example, US has 60Hz so lower cutoff would be around 59.98Hz
-        self.upper_freq = upper_freq    # Upper cutoff frequency. For example, US has 60Hz so upper cutoff would be around 60.02Hz
-        self.overlap = overlap  # STFT window overlap between window frames
+        self.filename = filename
+        #self.signal0 = 0  # full signal
+        self.fs = fs # sampling frequency required
+        self.frame_size_secs = frame_size_secs  # Window size in seconds
+        self.overlap_amount_secs = overlap_amount_secs
+        self.nfft = nfft
+        self.nominal = nominal  # the main ENF frequency ~ 60Hz for US and 50Hz for rest of the world
+        self.harmonic_multiples = np.arange(harmonic_multiples+1)
+        self.harmonic_multiples = self.harmonic_multiples[1:len(self.harmonic_multiples)] # multiple harmonics to combine them and get better signal estimate
+        self.duration = duration # in minutes to compute weights
+        self.harmonics = np.multiply( self.nominal, self.harmonic_multiples)
 
-    # Extract the sampling frequency of the given audio recording and return the fs
+        # Width band is used to see what frequency range to use for SNR calculations
+        self.width_band = width_band # half the width of the band about nominal values eg 1Hz for US ENF, 2 for others.
+
+        # Width signal mentions how much does the ENF vary from its nominal value
+        self.width_signal = width_signal # 0.02 for US and 0.5 for asian countries
+        self.strip_index = strip_index # which harmonics dimensions should be applied to others. Normally default is 1.
+
+        # Extract the sampling frequency of the given audio recording and return the fs
     def read_initial_data(self):
-        try:
-            self.original_wav = wave.open(self.filename)
-            self.original_sampling_frequency = self.original_wav.getframerate() # get sampling frequency
-            self.signalData, self.new_sampling_frequency = librosa.load(self.filename,sr=self.sampling_freq)
-            print("The sampling frequency of given file is ",self.original_sampling_frequency)
-        except:
-            print("Check File name or Path")
-        return self.original_sampling_frequency, self.signalData
+        self.orig_wav = wave.open(self.filename)
+        self.original_sampling_frequency = self.orig_wav.getframerate()  # get sampling frequency
+        self.signal0, self.fs = librosa.load(self.filename, sr=self.fs)
+        print("The sampling frequency of original file was ", self.original_sampling_frequency)
+        print("Sampling frequency Changed to ", self.fs)
+
+        return self.signal0, self.fs
 
     # If the given audio file has higher sampling frequency then this function will create a new audio file by setting
     # all the traits of original audio file to new file and change the sampling frequency
+    def find_closest(self, list_of_values, value):
+        index = 1
+        for i in range(1,len(list_of_values)+1):
+            if (abs(list_of_values[i] - value) < abs(list_of_values[i-1] - value )):
+                index = i
+            else:
+                break
+        return index
 
-    def down_sample_signal(self):
-        self.signalData, self.new_sampling_frequency = librosa.load(self.filename, sr=self.sampling_freq)
-        return self.signalData
+    def QuadInterpFunction(self,vector,index):
 
-
-#TODO: draw a graph of frequencies in this given file. There should be a spike at 60Hz for power files
-    def plot_spectrogram(self):
-        print("The sampling frequency of file in spectrogram is", self.sampling_freq)
-        plt.subplot(211)
-        plt.title("Spectrogram of a wav file with ENF")
-
-        plt.plot(self.signalData)
-        plt.xlabel("Sample")
-        plt.ylabel("Amplitude")
-
-        plt.subplot(212)
-        plt.specgram(self.signalData,Fs=self.new_sampling_frequency)
-        plt.xlabel("Time")
-        plt.ylabel("Frequency")
-
-        plt.show()
-        return 0
-
-    def frequency_plot(self, signal, label): # plot the frequencies in the given file
-        Ts = 1.0/float(self.new_sampling_frequency) # sampling interval
-
-        n = len(signal)  # length of the signal
-        T = n / float(self.new_sampling_frequency)
-        t = np.arange(0,T,Ts) # Time Vector
+        if index == 0:
+            index = 1
+        elif index == (len(vector)-1):
+            index = len(vector) - 2
+        #print("In function Index",index)
+        alpha = 20 * math.log10(abs(vector[index-1]))
+        #print("Alpha",alpha)
+        beta = 20 * math.log10(abs(vector[index]))
+        #print("Beta",beta)
+        gamma = 20 * math.log10(abs(vector[index+1]))
+        #print("Gamma",gamma)
+        delta = 0.5 * (alpha-gamma)/(alpha - 2*beta + gamma)
+        kmax = index
+        k_star = kmax + delta
+        return k_star
 
 
-        k = np.arange(n)
-        freq = k/T # two sided frequency range
-        freq = freq[range(int(n/2))] # one sided frequency range, eliminating negative frequency using Nyquist frequency
 
-        Y = np.fft.fft(signal)/n # fft computing and normalization
-        Y = Y[range(int(n/2))]
+    def compute_spectrogam_strips(self):
+        # variables declaration
+        number_of_harmonics = len(self.harmonic_multiples)  # total number of harmonics
+        spectro_strips = []  # collecting the psd strips regarding each selected frequency range around nominal freq
+        frame_size = math.floor(self.frame_size_secs * self.fs)
+        overlap_amount = self.overlap_amount_secs * self.fs
+        shift_amount = frame_size - overlap_amount
+        length_signal = len(self.signal0)
 
-        plt.subplot(211)
-        titl = "Frequency Analysis "+ label
-        plt.title(titl)
+        # The ENF will have total seconds based on the frame size selected. If frame size is 1 then ENF will have same
+        # seconds as the original recording, else it will follow the following distribution
+        number_of_frames = math.ceil( (length_signal - frame_size + 1)/shift_amount ) # based on given frame size
 
-        plt.plot(t,signal)
-        plt.xlabel("Time")
-        plt.ylabel("Amplitude")
+        # Collecting the spectrogram strips for each window in the signal and storing them in the list
+        # The rows change based on the nfft selected. It also effects the resolution of the frequency range
+        rows = int(self.nfft/2 + 1)
+        starting = 0
+        Pxx = np.zeros(shape=(rows,number_of_frames)) # declaring the PSD array
+        win = signal.get_window('hamming',frame_size) # creating a hamming window for each frame segment
+        for frame in range(number_of_frames):
+            ending = starting + frame_size
+            x = self.signal0[starting:ending]
+            f, t, P = signal.spectrogram(x, window=win, noverlap=self.overlap_amount_secs, nfft=self.nfft, fs=self.fs, mode='psd')
+            Pxx[:, frame] = P[:,0]
+            starting = starting + shift_amount
 
-        plt.subplot(212)
-        plt.plot(freq,abs(Y),'r') # plotting the spectrum
-        plt.xlabel("Freq(Hz)")
-        plt.ylabel("Y(freq)")
+        # choosing the strips that we need and setting up frequency support
+        first_index = self.find_closest(f, self.nominal - self.width_band)
+        second_index = self.find_closest(f, self.nominal + self.width_band)
+        frequency_support = np.zeros(shape=(number_of_harmonics,2))
 
-        plt.show()
-        return 0
+        for i in range(number_of_harmonics):
+            starting = first_index * self.harmonic_multiples[i]
 
-    def butter_bandpass(self,order=3):
-        nyquist = 0.5 * self.new_sampling_frequency
-        low = self.lower_freq/nyquist
-        high = self.upper_freq/ nyquist
-        b, a = butter(order, [low,high], btype='band')
+            ending = second_index * self.harmonic_multiples[i]
+            spectro_strips.append(Pxx[starting:(ending+1), :])
 
-        return b, a
+            frequency_support[i,0] = f[starting]
+            frequency_support[i,1] = f[ending]
 
-    def butter_bandpass_filter(self, data, order=3):
-        b,a = self.butter_bandpass(order=order)
-        y = lfilter(b,a,data)
-        return y
+        return spectro_strips, frequency_support
 
-    def plot_stft(self,t,f,Zxx):
-        plt.pcolormesh(t, f, np.abs(Zxx))
-        plt.title("STFT Magnitude")
-        plt.ylabel("Frequency (Hz)")
-        plt.xlabel("Time (sec)")
-        plt.show()
 
-    def stft_check(self, fsignal):
-        amp = 2*np.sqrt(2)
-        f, t, Zxx = signal.stft(fsignal, fs=self.new_sampling_frequency, window='hamm', nperseg=256, noverlap=225,
-                                nfft=8192, padded=False)
-        #f, t, Zxx = signal.stft(fsignal, fs=self.new_sampling_frequency)
-        testing = abs(Zxx[1])
-        #print(len(testing))
-        #print(testing[1])
-        #print(Zxx[488][1].real)
-        #print(len(Zxx[4096]))
-        #print("Zxx = "+ str(size(Zxx)))
-        #print("f = "+ str(size(f)))
-        #print("t = "+ str(size(t)))
-        #self.plot_stft(t,f,Zxx)
+    def compute_combining_weights_from_harmonics(self):
 
-        return Zxx,f,t
+        number_of_duration = math.ceil(len(self.signal0)/(self.duration*60*self.fs))
+        frame_size = math.floor(self.frame_size_secs * self.fs)
+        overlap_amount = self.overlap_amount_secs * self.fs
+        shift_amount = frame_size - overlap_amount
+        number_of_harmonics = len(self.harmonic_multiples)
+        starting_frequency = self.nominal - self.width_band
+        center_frequency = self.nominal
+        initial_first_value = self.nominal - self.width_signal
+        initial_second_value =  self.nominal + self.width_signal
+        weights = np.zeros(shape=(number_of_harmonics,number_of_duration))
+
+        inside_mean = np.zeros(shape=(number_of_harmonics, number_of_duration))
+        outside_mean = np.zeros(shape=(number_of_harmonics, number_of_duration))
+        total_nb_frames = 0
+        All_strips_Cell = []
+
+        for dur in range(number_of_duration):
+            print(dur)
+
+            # dividing the signal based on the duration selected.
+
+            x = self.signal0[(dur*self.duration*60*self.fs): min(len(self.signal0), ((dur+1)*self.duration*60*self.fs + overlap_amount))]
+
+            # getting the spectrogram strips
+            number_of_frames = math.ceil((len(x) - frame_size + 1) / shift_amount)  # based on given frame size
+            # Collecting the spectrogram strips for each window in the signal and storing them in the list
+            # The rows change based on the nfft selected. It also effects the resolution of the frequency range
+            rows = int(self.nfft / 2 + 1)
+            starting = 0
+            Pxx = np.zeros(shape=(rows, number_of_frames))  # declaring the PSD array
+            win = signal.get_window('hamming', frame_size)  # creating a hamming window for each frame segment
+
+            for frame in range(number_of_frames):
+
+                ending = starting + frame_size
+                sig = self.signal0[starting:ending]
+                f, t, P = signal.spectrogram(sig, window=win, noverlap=self.overlap_amount_secs, nfft=self.nfft,
+                                             fs=self.fs, mode='psd')
+                Pxx[:, frame] = P[:, 0]
+                starting = starting + shift_amount
+
+            # getting the harmonic strips
+            width_init = self.find_closest(f, center_frequency) - self.find_closest(f,starting_frequency)
+            HarmonicStrips = np.zeros(shape=((width_init*2*sum(self.harmonic_multiples)),number_of_frames))
+            FreqAxis = np.zeros(shape=((width_init*2*sum(self.harmonic_multiples)),1))
+            resolution = f[1] - f[0]
+
+            starting = 0
+            starting_indices = np.zeros(shape=(number_of_harmonics,1))
+            ending_indices = np.zeros(shape=(number_of_harmonics,1))
+
+            for k in range(number_of_harmonics):
+
+                starting_indices[k] = starting
+                width = width_init * self.harmonic_multiples[k]
+                ending = starting + 2*width
+
+                ending_indices[k] = ending
+
+                tempFreqIndex = round(self.harmonics[k]/resolution)
+
+                st = int(tempFreqIndex - width)
+                en = int(tempFreqIndex + width)
+
+                HarmonicStrips[starting:ending, :] = Pxx[st:en,:]
+                FreqAxis[starting:ending,0] = f[st:en]
+                starting = ending
+
+            All_strips_Cell.append(HarmonicStrips)
+
+            # getting the weights
+
+            for k in range(number_of_harmonics):
+                currStrip = HarmonicStrips[int(starting_indices[k]):int(ending_indices[k]),:]
+                freq_axis = FreqAxis[int(starting_indices[k]):int(ending_indices[k])]
+
+                first_value = initial_first_value * self.harmonic_multiples[k]
+                second_value = initial_second_value * self.harmonic_multiples[k]
+
+                first_index = self.find_closest(freq_axis, first_value)
+                second_index = self.find_closest(freq_axis, second_value)
+
+                #first_index = first_index - 1
+                second_index = second_index + 1
+
+                inside_strip = currStrip[first_index:second_index,:]
+                inside_mean[k,dur] = np.mean(inside_strip)
+                #print(inside_strip)
+                #print("Inside Mean ",k)
+                #print(inside_mean)
+
+                outside_strip1 = currStrip[0:first_index,:]
+                outside_strip2 = currStrip[second_index:len(currStrip),:]
+                outside_mean[k,dur] = np.mean(np.append(outside_strip1,outside_strip2))
+                #print("outside Mean ",k)
+                #print(outside_mean)
+                if inside_mean[k,dur] < outside_mean[k,dur]:
+                    weights[k,dur] = 0
+                else:
+                    weights[k, dur] = inside_mean[k,dur] / outside_mean[k,dur]
+                #print(weights[k,dur])
+
+            sum_weights = np.sum(weights[:,dur], axis=0)
+
+            for k in range(number_of_harmonics):
+                weights[k,dur] = (100 * weights[k,dur])/sum_weights
+
+        return weights
+
+    def compute_combined_spectrum(self,strips,weights,freq_support):
+
+        #setting up variables
+        number_of_duration = (np.shape(weights))[1]
+        number_of_frames = (np.shape(strips[0]))[1]
+        number_of_frames_per_duration = (self.duration*60)/self.frame_size_secs
+        strip_width = np.shape((strips[self.strip_index]))[0]
+        #print(strip_width)
+        OurStripCell = []
+        number_of_signals = np.shape(strips)[0]
+        initial_frequency = freq_support[0,0]
+
+        # combining all the strips from different signals into one size
+        # the size is determined with strip_index variable and the combination is done for varying duration size since
+        # each duration size has different weights
+
+        begin = 0
+        for dur in range(number_of_duration):
+            number_of_frames_left = number_of_frames - dur * number_of_frames_per_duration
+            OurStrip = np.zeros(shape=(int(strip_width), min(int(number_of_frames_per_duration),int(number_of_frames_left))))
+            endit = begin + (np.shape(OurStrip))[1]
+            for harm in range(number_of_signals):
+                tempStrip = (strips[harm])[:,begin:endit]
+                q = (np.shape(OurStrip))[1]
+                for frame in range(q):
+                    temp = tempStrip[:,frame:(frame+1)]
+                    tempo = imresize(temp,(strip_width,1),interp='bilinear',mode='F')
+                    tempo = 100 * tempo/max(tempo)
+                    OurStrip[:,frame:(frame+1)] = OurStrip[:,frame:(frame+1)] + (weights[harm,dur] * tempo)
+
+            OurStripCell.append(OurStrip)
+            begin = endit
+
+        return OurStripCell, initial_frequency
+
+    def compute_ENF_from_combined_strip(self,OurStripCell,initial_frequency):
+
+        number_of_duration = len(OurStripCell)
+        number_of_frames_per_dur = ((OurStripCell[0]).shape)[1]
+        number_of_frames = number_of_frames_per_dur*(number_of_duration-1) + ((OurStripCell[0]).shape)[1]
+        ENF = np.zeros(shape=(number_of_frames,1))
+
+        starting = 0
+        for dur in range(number_of_duration):
+            OurStrip_here = OurStripCell[dur]
+            number_of_frames_here = (OurStrip_here.shape)[1]
+            ending = starting + number_of_frames_here
+            ENF_here = np.zeros(shape=(number_of_frames_here,1))
+            for frame in range(number_of_frames_here):
+                power_vector = OurStrip_here[:,frame]
+                list_power_vector = list(power_vector)
+                index = list_power_vector.index(max(list_power_vector))
+                k_star = self.QuadInterpFunction(power_vector,index)
+                ENF_here[frame] = initial_frequency + self.fs*(k_star/self.nfft)
+            ENF[starting:ending] = ENF_here
+            starting = ending
+        return ENF
+
 
 def main():
-    #plt.close('all')
-    #mysignal = ENF(sampling_freq,"Recordings/recorded_frequency.wav", 59.9, 60.1, 9)
-    #mysignal = ENF(sampling_freq, "Recordings/Grid_A_P1.wav", lowcut, highcut, 9)
-    mysignal = ENF(sampling_freq, "Recordings/Recorded_Data_1.wav", lowcut, highcut, 9)
-    original_sampling_frequency, osignal = mysignal.read_initial_data()
-    if original_sampling_frequency != sampling_freq:
-        osignal = mysignal.down_sample_signal()
-        print("The given audio file has higher sampling frequency than required. So Downsampling the signal")
-    else:
-        print("The given audio file has the required sampling frequency, NO downsampling required")
-    print("Plotting the diagram")
-    # To plot the spectrogram and analyse, uncomment the following line
-    #mysignal.plot_spectrogram()
-
-    # To check the frequency analysis of the signal uncomment this line
-    #mysignal.frequency_plot(osignal, label="Before Filtering")
-
-    filtered_signal = mysignal.butter_bandpass_filter(osignal)
-
-    # to check if the filtering of the signal work uncomment this line
-    #mysignal.frequency_plot(filtered_signal, label="After Filtering")
-    print(type(filtered_signal))
-    new_filtered_signal = np.split(filtered_signal,100)
-    print(len(new_filtered_signal))
-    enf_signal = []
-    enf_time = []
-    for k in range(0,100):
-        Zxx, f, t = mysignal.stft_check(new_filtered_signal[k])
-        index = []
-        for i in range(0,len(f)):
-            if f[i] > lowcut and f[i] < highcut:
-                index.append(i)
 
 
+    mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=6, duration=2)
 
-        #print(index)
-        #print(Zxx[index[1]][1].real)
-        for i in range(0,len(t)):
-            extracted_list = []
-            enf_time.append(t[i])
-            for j in range(0,len(index)):
-                extracted_list.append(abs(Zxx[index[j]][i]))
-            enf_signal.append(max(extracted_list))
-        #print(len(enf_signal))
 
-    plt.plot(enf_signal[0:int(len(enf_signal)/2)])
-    #plt.pcolormesh(t, f, enf_signal )
-    plt.xlabel("Time")
-    plt.ylabel("Frequency")
+    x, fs = mysignal.read_initial_data()
+
+    spectro_strip , frequency_support = mysignal.compute_spectrogam_strips()
+
+
+    weights = mysignal.compute_combining_weights_from_harmonics()
+
+    OurStripCell, initial_frequency = mysignal.compute_combined_spectrum(spectro_strip,weights,frequency_support)
+
+    ENF = mysignal.compute_ENF_from_combined_strip(OurStripCell,initial_frequency)
+
+    plt.plot(ENF)
+    plt.title("ENF Signal")
+    plt.ylabel("Frequency (Hz)")
+    plt.xlabel("Time (sec)")
     plt.show()
+    #print(ENF)
+    #t = [1, 2, 3, 4, 10, 6, 7, 8, 9, 5]
+    #index = t.index(max(t))
+    #print("Index",t.index(max(t)))
+    #print(mysignal.QuadInterpFunction(t,index))
+
+
+
+    #print(weights)
+    #print(initial_frequency)
+    #print(((OurStripCell[0]).shape)[1])
+
 
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
 
