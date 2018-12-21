@@ -6,10 +6,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import librosa
 import math
+from scipy.misc import imresize
 
 class pyENF:
 
-    def __init__(self, filename, fs=1000, frame_size_secs=1, overlap_amount_secs=0, nfft=8192, nominal=None, harmonic_multiples=None, duration=None, width_band=1, width_signal=0.02, strip_index=1):
+    def __init__(self, filename, fs=1000, frame_size_secs=1, overlap_amount_secs=0, nfft=8192, nominal=None, harmonic_multiples=None, duration=None, width_band=1, width_signal=0.02, strip_index=0):
 
         self.filename = filename
         #self.signal0 = 0  # full signal
@@ -215,7 +216,7 @@ class pyENF:
         print(strip_width)
         OurStripCell = []
         number_of_signals = np.shape(strips)[0]
-        initial_frequency = frequency_support[0,0]
+        initial_frequency = freq_support[0,0]
 
         # combining all the strips from different signals into one size
         # the size is determined with strip_index variable and the combination is done for varying duration size since
@@ -230,25 +231,53 @@ class pyENF:
                 tempStrip = (strips[harm])[:,begin:endit]
                 q = (np.shape(OurStrip))[1]
                 for frame in range(q):
-                    tempo = 0
+                    temp = tempStrip[:,frame:(frame+1)]
+                    tempo = imresize(temp,(strip_width,1),interp='bilinear',mode='F')
+                    tempo = 100 * tempo/max(tempo)
+                    OurStrip[:,frame:(frame+1)] = OurStrip[:,frame:(frame+1)] + (weights[harm,dur] * tempo)
+
+            OurStripCell.append(OurStrip)
+            begin = endit
+
+        return OurStripCell, initial_frequency
+
+    def compute_ENF_from_combined_strip(self,OurStripCell,initial_frequency):
+
+        number_of_duration = len(OurStripCell)
+        number_of_frames_per_dur = ((OurStripCell[0]).shape)[1]
+        number_of_frames = number_of_frames_per_dur*(number_of_duration-1) + ((OurStripCell[0]).shape)[1]
+        ENF = np.zeros(shape=(number_of_frames,1))
 
 
-        print(number_of_duration)
 
 
 
+        return ENF
 
 
-mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=6, duration=2)
+def main():
 
 
-x, fs = mysignal.read_initial_data()
-
-spectro_strip , frequency_support = mysignal.compute_spectrogam_strips()
+    mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=6, duration=2)
 
 
-weights = mysignal.compute_combining_weights_from_harmonics()
+    x, fs = mysignal.read_initial_data()
 
-mysignal.compute_combined_spectrum(spectro_strip,weights,frequency_support)
+    spectro_strip , frequency_support = mysignal.compute_spectrogam_strips()
 
-print(weights)
+
+    weights = mysignal.compute_combining_weights_from_harmonics()
+
+    OurStripCell, initial_frequency = mysignal.compute_combined_spectrum(spectro_strip,weights,frequency_support)
+
+
+
+    #print(weights)
+    #print(initial_frequency)
+    #print(((OurStripCell[0]).shape)[1])
+
+
+
+if __name__ == '__main__':
+    main()
+
