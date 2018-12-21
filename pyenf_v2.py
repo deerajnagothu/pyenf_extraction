@@ -52,6 +52,26 @@ class pyENF:
                 break
         return index
 
+    def QuadInterpFunction(self,vector,index):
+
+        if index == 0:
+            index = 1
+        elif index == (len(vector)-1):
+            index = len(vector) - 2
+        #print("In function Index",index)
+        alpha = 20 * math.log10(abs(vector[index-1]))
+        #print("Alpha",alpha)
+        beta = 20 * math.log10(abs(vector[index]))
+        #print("Beta",beta)
+        gamma = 20 * math.log10(abs(vector[index+1]))
+        #print("Gamma",gamma)
+        delta = 0.5 * (alpha-gamma)/(alpha - 2*beta + gamma)
+        kmax = index
+        k_star = kmax + delta
+        return k_star
+
+
+
     def compute_spectrogam_strips(self):
         # variables declaration
         number_of_harmonics = len(self.harmonic_multiples)  # total number of harmonics
@@ -213,7 +233,7 @@ class pyENF:
         number_of_frames = (np.shape(strips[0]))[1]
         number_of_frames_per_duration = (self.duration*60)/self.frame_size_secs
         strip_width = np.shape((strips[self.strip_index]))[0]
-        print(strip_width)
+        #print(strip_width)
         OurStripCell = []
         number_of_signals = np.shape(strips)[0]
         initial_frequency = freq_support[0,0]
@@ -248,10 +268,20 @@ class pyENF:
         number_of_frames = number_of_frames_per_dur*(number_of_duration-1) + ((OurStripCell[0]).shape)[1]
         ENF = np.zeros(shape=(number_of_frames,1))
 
-
-
-
-
+        starting = 0
+        for dur in range(number_of_duration):
+            OurStrip_here = OurStripCell[dur]
+            number_of_frames_here = (OurStrip_here.shape)[1]
+            ending = starting + number_of_frames_here
+            ENF_here = np.zeros(shape=(number_of_frames_here,1))
+            for frame in range(number_of_frames_here):
+                power_vector = OurStrip_here[:,frame]
+                list_power_vector = list(power_vector)
+                index = list_power_vector.index(max(list_power_vector))
+                k_star = self.QuadInterpFunction(power_vector,index)
+                ENF_here[frame] = initial_frequency + self.fs*(k_star/self.nfft)
+            ENF[starting:ending] = ENF_here
+            starting = ending
         return ENF
 
 
@@ -269,6 +299,19 @@ def main():
     weights = mysignal.compute_combining_weights_from_harmonics()
 
     OurStripCell, initial_frequency = mysignal.compute_combined_spectrum(spectro_strip,weights,frequency_support)
+
+    ENF = mysignal.compute_ENF_from_combined_strip(OurStripCell,initial_frequency)
+
+    plt.plot(ENF)
+    plt.title("ENF Signal")
+    plt.ylabel("Frequency (Hz)")
+    plt.xlabel("Time (sec)")
+    plt.show()
+    #print(ENF)
+    #t = [1, 2, 3, 4, 10, 6, 7, 8, 9, 5]
+    #index = t.index(max(t))
+    #print("Index",t.index(max(t)))
+    #print(mysignal.QuadInterpFunction(t,index))
 
 
 
