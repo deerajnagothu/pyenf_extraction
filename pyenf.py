@@ -138,7 +138,7 @@ class pyENF:
 
             # dividing the signal based on the duration selected.
 
-            x = self.signal0[(dur*self.duration*60*self.fs): min(len(self.signal0), ((dur+1)*self.duration*60*self.fs + overlap_amount))]
+            x = self.signal0[int(dur*self.duration*60*self.fs): int(min(len(self.signal0), ((dur+1)*self.duration*60*self.fs + overlap_amount)))]
 
             # getting the spectrogram strips
             number_of_frames = math.ceil((len(x) - frame_size + 1) / shift_amount)  # based on given frame size
@@ -287,9 +287,7 @@ class pyENF:
 
 def main():
 
-
-    mysignal = pyENF(filename="2A_P1.wav",nominal=60, harmonic_multiples=6, duration=2)
-
+    mysignal = pyENF(filename="Recordings/12sec_A_P1.wav",nominal=60, harmonic_multiples=6, duration=0.1, strip_index=0)
 
     x, fs = mysignal.read_initial_data()
 
@@ -307,19 +305,11 @@ def main():
     plt.ylabel("Frequency (Hz)")
     plt.xlabel("Time (sec)")
     plt.show()
-    #print(ENF)
-    #t = [1, 2, 3, 4, 10, 6, 7, 8, 9, 5]
-    #index = t.index(max(t))
-    #print("Index",t.index(max(t)))
-    #print(mysignal.QuadInterpFunction(t,index))
-
-
+    print(ENF)
 
     #print(weights)
     #print(initial_frequency)
     #print(((OurStripCell[0]).shape)[1])
-
-
 
 if __name__ == '__main__':
     main()
