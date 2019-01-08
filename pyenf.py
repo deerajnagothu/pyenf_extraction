@@ -33,11 +33,11 @@ class pyENF:
 
         # Extract the sampling frequency of the given audio recording and return the fs
     def read_initial_data(self):
-        self.orig_wav = wave.open(self.filename)
-        self.original_sampling_frequency = self.orig_wav.getframerate()  # get sampling frequency
+        # self.orig_wav = wave.open(self.filename)
+        # self.original_sampling_frequency = self.orig_wav.getframerate()  # get sampling frequency
         self.signal0, self.fs = librosa.load(self.filename, sr=self.fs)
-        print("The sampling frequency of original file was ", self.original_sampling_frequency)
-        print("Sampling frequency Changed to ", self.fs)
+        #print("The sampling frequency of original file was ", self.original_sampling_frequency)
+        #print("Sampling frequency Changed to ", self.fs)
 
         return self.signal0, self.fs
 
@@ -287,7 +287,7 @@ class pyENF:
 
 def main():
 
-    mysignal = pyENF(filename="Recordings/12sec_A_P1.wav",nominal=60, harmonic_multiples=6, duration=0.1, strip_index=0)
+    mysignal = pyENF(filename="Recordings/Grid_A_A1.wav",nominal=50, harmonic_multiples=6, duration=0.1, strip_index=0)
 
     x, fs = mysignal.read_initial_data()
 
@@ -305,9 +305,9 @@ def main():
     plt.ylabel("Frequency (Hz)")
     plt.xlabel("Time (sec)")
     plt.show()
-    print(ENF)
-
-    #print(weights)
+    #print(ENF)
+    print(frequency_support)
+    print(weights)
     #print(initial_frequency)
     #print(((OurStripCell[0]).shape)[1])
 

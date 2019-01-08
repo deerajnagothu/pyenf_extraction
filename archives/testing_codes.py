@@ -1,23 +1,22 @@
-from scipy import signal
-import matplotlib.pyplot as plt
-import numpy as np
-fs = 10e3
-N = 1e5
-amp = 2 * np.sqrt(2)
-noise_power = 0.01 * fs / 2
-time = np.arange(N) / float(fs)
-mod = 500*np.cos(2*np.pi*0.25*time)
-carrier = amp * np.sin(2*np.pi*3e3*time + mod)
-noise = np.random.normal(scale=np.sqrt(noise_power),size=time.shape)
-noise *= np.exp(-time/5)
-x = carrier + noise
-#Compute and plot the STFT’s magnitude.
-print(x)
+from datetime import datetime
+from threading import Timer
+import sys
+import time
 
-print(type(x))
-f, t, Zxx = signal.stft(x, fs, nperseg=1000)
-plt.pcolormesh(t, f, np.abs(Zxx), vmin=0, vmax=amp)
-plt.title('STFT Magnitude')
-plt.ylabel('Frequency [Hz]')
-plt.xlabel('Time [sec]')
-plt.show()
+x=datetime.today()
+y=x.replace(day=x.day, hour=18, minute=30, second=0, microsecond=0)
+delta_t=y-x
+
+secs=delta_t.seconds+1
+
+def hello_world():
+    print("hello world")
+    #...
+
+t = Timer(secs, hello_world)
+t.start()
+for i in range(secs,0,-1):
+    print("Seconds left before it begins", i)
+    sys.stdout.flush()
+    time.sleep(1)
+
