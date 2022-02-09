@@ -3,6 +3,7 @@
 
 # Import required packages
 import numpy as np
+import os
 import cv2
 import pickle
 import pyenf
@@ -16,9 +17,9 @@ from skimage.util import img_as_float
 from skimage.segmentation import slic
 from scipy.stats.stats import pearsonr
 
-video_folder = "/home/deeraj/Documents/Projects/pyENF_extraction_rolling_shutter/Recordings/"
+video_folder = "./Recordings/SSA/"
 
-power_rec_name = "power_20min.wav"
+power_rec_name = "3hr_ENF.wav"
 power_filepath = video_folder + power_rec_name
 
 
@@ -54,25 +55,71 @@ def normalize_this(ENF_signal):
     norm_ENF = ENF_signal/norm
     return norm_ENF
 
+def save_this_variable(variable,location,filename):
+    variable_location = location + filename
+    store_variable_file = open(variable_location, 'wb')
+    pickle.dump(variable, store_variable_file)
+    store_variable_file.close()
+
+def load_this_variable(location):
+    variable_location = location
+    load_variable_file = open(variable_location, 'rb')
+    variable = pickle.load(load_variable_file)
+    load_variable_file.close()
+    return variable
+
 fs = 1000  # downsampling frequency
 nfft = 8192
-frame_size = 1  # change it to 6 for videos with large length recording
+frame_size = 2  # change it to 6 for videos with large length recording
 overlap = 0
+window_size = 60
+shift_size= 10
 
-power_signal0, fs = librosa.load(power_filepath, sr=fs)  # loading the power ENF data
+
+
+ENF_variable_filename = video_folder + "ENF_300.pkl"
+if os.path.exists(ENF_variable_filename) is True:
+    ENF60 = load_this_variable(ENF_variable_filename)
+    print("Loaded Power ENF")
+else:
+    power_signal0, fs = librosa.load(power_filepath, sr=fs)  # loading the power ENF data
+    ENF60 = give_me_ENF(fs,nfft,frame_size,overlap,1,power_signal0,300)
+    save_this_variable(ENF60,video_folder,"ENF_300.pkl")
+    print("Created Power ENF")
+
+norm_ENF60 = normalize_this(ENF60)
+
+
+
+power_rec_name2 = "3hr_ENF_in_audio.wav"
+power_filepath2 = video_folder + power_rec_name2
+power_signal1, fs = librosa.load(power_filepath2, sr=fs)  # loading the power ENF data
+
+ENF60_2 = give_me_ENF(fs,nfft,frame_size,overlap,1,power_signal1,300)
+norm_ENF60_2 = normalize_this(ENF60_2)
+rho,total_windows = correlation_vector(ENF60,ENF60_2,window_size,shift_size)
+
+save_this_variable(rho,video_folder,"rho.pkl")
+
+print(rho[0])
+plt.figure()
+
+plt.plot(rho[0],'g')#,norm_ENF300[:-8],'r')
+plt.title("rho", fontsize=12)
+plt.ylabel("correlation", fontsize=12)
+plt.xlabel("Time", fontsize=12)
+#plt.legend(["Combined","60 Hz","180 Hz","300 Hz"])
+plt.show()
 
 """
+
 plt.subplot(211)
 plt.specgram(power_signal0[:int(len(power_signal0)/frame_size)],Fs=fs)
 plt.title("Spectrogram of ENF Power Recording", fontsize=12)
 plt.ylabel("Freq (Hz)", fontsize=12)
 #plt.xlabel("Time", fontsize=12)
 #plt.show()
-"""
 
-ENF60 = give_me_ENF(fs,nfft,frame_size,overlap,1,power_signal0,60)
-norm_ENF60 = normalize_this(ENF60)
-"""
 ENF180 = give_me_ENF(fs,nfft,frame_size,overlap,1,power_signal0,180)
 norm_ENF180 = normalize_this(ENF180)
 
@@ -102,7 +149,7 @@ plt.ylabel("Freq (Hz)", fontsize=12)
 plt.xlabel("Time", fontsize=12)
 plt.legend(["Combined","60 Hz","180 Hz","300 Hz"])
 plt.show()
-"""
+
 filenam = "ENF_values.csv"
 counter = 0
 with open(filenam,'w') as file:
@@ -110,3 +157,4 @@ with open(filenam,'w') as file:
         x = str(counter)+","+str(each_enf[0])+"\n"
         file.write(x)
         counter = counter+1
+"""

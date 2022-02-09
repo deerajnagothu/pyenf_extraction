@@ -18,11 +18,11 @@ from scipy.stats.stats import pearsonr
 
 # Constants
 open_video_to_extract_Row_signal = False  # set it to True to extract, else False to use the dump file
-# video_folder = "Recordings/Sample1/"
-# video_rec_name = "resized_MVI_0292.avi"
-video_folder = "/home/deeraj/Documents/Projects/pyENF_extraction_rolling_shutter/Recordings/Deepfake/set1/original/"
-video_rec_name = "01__talking_against_wall.mp4"
-power_rec_name = "power_recording_10min.wav"
+video_folder = "Recordings/2022/HomeRec/Deepfake1/"
+video_rec_name = "deepfake1.mp4"
+#video_folder = "/home/deeraj/Documents/Projects/pyENF_extraction_rolling_shutter/Recordings/Deepfake/set1/original/"
+#video_rec_name = "01__talking_against_wall.mp4"
+power_rec_name = "power_deepfake1.wav"
 numSegments = 500  # number of superpixel segments per frame
 # video_rec_name = "resized_MVI_0288.avi"
 # power_rec_name = "80D_power_recording_3_20min.wav"
@@ -90,7 +90,7 @@ def second_half_extract_row_pixel(frame):
     frame_shape = frame.shape
     if frame_shape[2] == 3:  # its an RGB frame
         average_frame_across_rgb = np.mean(frame, axis=2)
-        average_frame_across_column = np.mean(average_frame_across_rgb[:,320:], axis=1)
+        average_frame_across_column = np.mean(average_frame_across_rgb[:,:1000], axis=1)
     else:
         average_frame_across_column = np.mean(frame, axis=1)
     average_frame_across_column = np.reshape(average_frame_across_column, (frame_shape[0],))
@@ -122,7 +122,7 @@ width_of_frame = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))  # total number of col
 frame_rate = float(video.get(cv2.CAP_PROP_FPS))
 size_of_row_signal = int(np.multiply(total_number_of_frames, height_of_frame))
 # print(size_of_row_signal)
-
+#print(width_of_frame)
 
 # row_signal = np.zeros((size_of_row_signal, 1), dtype=float)
 row_signal = np.zeros((total_number_of_frames, height_of_frame, 1), dtype=float)
@@ -153,8 +153,8 @@ if open_video_to_extract_Row_signal is True:
             else:
                 row_signal[frame_counter, :, 0] = second_half_extract_row_pixel(frame)
 
-            oSSM_mask = oSSM_mask * 255
-            oSSM_mask = oSSM_mask.astype(np.uint8)
+            #oSSM_mask = oSSM_mask * 255
+            #oSSM_mask = oSSM_mask.astype(np.uint8)
             cv2.imshow('Frame', frame)
 
             if cv2.waitKey(25) & 0xFF == ord('q'):
@@ -207,7 +207,7 @@ power_signal0, fs = librosa.load(power_signal_filename, sr=fs)  # loading the po
 
 # ENF extraction from video recording
 video_signal_object = pyenf.pyENF(signal0=signal0, fs=fs, nominal=120, harmonic_multiples=1, duration=1,
-                                  strip_index=0, frame_size_secs=frame_size, nfft=nfft, overlap_amount_secs=overlap, width_signal=0.02, width_band=1)
+                                  strip_index=0, frame_size_secs=frame_size, nfft=nfft, overlap_amount_secs=overlap, width_signal=0.02, width_band=0.5)
 spectro_strip, frequency_support = video_signal_object.compute_spectrogam_strips()
 weights = video_signal_object.compute_combining_weights_from_harmonics()
 OurStripCell, initial_frequency = video_signal_object.compute_combined_spectrum(spectro_strip, weights,
@@ -264,10 +264,10 @@ print("Correlating the signal")
 #corr.axhline(0.5, ls=':')
 fig.tight_layout()
 plt.show()
+
+rho,total_windows = correlation_vector(ENF[:-7], power_ENF[:-7],window_size,shift_size)
+
 """
-rho,total_windows = correlation_vector(ENF[:-1], power_ENF[:-2],window_size,shift_size)
-
-
 # temp load of rho
 variable_location = video_folder + "rho_without_SSM.pkl"
 load_variable_file = open(variable_location, 'rb')
@@ -277,16 +277,14 @@ load_variable_file.close()
 #
 
 
-
+"""
 t = np.arange(0,total_windows-1,1)
-plt.plot(t,rho[0][1:],'g--', label="With SSM")
-plt.plot(t,rho_without_SSM[0][1:],'b', label="Without SSM")
+plt.plot(t,rho[0][1:],'g--', label="Plain Wall")
+#plt.plot(t,rho_without_SSM[0][1:],'b', label="Without SSM")
 plt.hlines(y=0.8, xmin=0, xmax=len(t), colors='r', linestyles='--', lw=2)
 plt.ylabel('Correlation Coefficient', fontsize=12)
 plt.xlabel('Number of Windows compared', fontsize=12)
-plt.title('ENF fluctuations with and without SSM', fontsize=12)
+plt.title('ENF fluctuations compared', fontsize=12)
 #plt.set_legend('With SSM','Without SSM')
 plt.legend(loc="lower right")
 plt.show()
-
-"""
