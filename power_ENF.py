@@ -2,7 +2,6 @@ import numpy as np
 import cv2
 import pickle
 import pyenf
-#from scipy import signal, io
 import scipy.io.wavfile
 import math
 from scipy.fftpack import fftshift
@@ -12,13 +11,13 @@ from skimage.util import img_as_float
 from skimage.segmentation import slic
 from scipy.stats.stats import pearsonr
 
-# Constants
-open_video_to_extract_Row_signal = False  # set it to True to extract, else False to use the dump file
-do_ssm = 0  # decides if SSM should be applied or not to a code.
-folder = "Recordings/Spotlight-FFI/Video/"
+# Constants for file location
+
+folder = "Recordings/"
 power_rec_name = "power_wall.wav"
 power_filepath = folder + power_rec_name
 
+#function to compare the signal similarities
 
 def correlation_vector(ENF_signal1, ENF_signal2, window_size, shift_size):
     correlation_ENF = []
@@ -35,6 +34,7 @@ def correlation_vector(ENF_signal1, ENF_signal2, window_size, shift_size):
     return rho,total_windows
 
 
+#parameters for the STFT algorithm
 
 fs = 1000  # downsampling frequency
 nfft = 8192
@@ -45,6 +45,8 @@ overlap = 0
 power_signal_filename = power_filepath
 power_signal0, fs = librosa.load(power_signal_filename, sr=fs)  # loading the power ENF data
 
+
+#initialize the class object for the ENF. 
 
 power_signal_object = pyenf.pyENF(signal0=power_signal0, fs=fs, nominal=60, harmonic_multiples=1, duration=0.1,
                                   strip_index=0, frame_size_secs=frame_size, nfft=nfft, overlap_amount_secs=overlap)
