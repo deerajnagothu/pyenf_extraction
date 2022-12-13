@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import librosa
 import math
 from scipy.misc import imresize
-
+from PIL import Image
 
 class pyENF:
 
@@ -257,7 +257,14 @@ class pyENF:
                 q = (np.shape(OurStrip))[1]
                 for frame in range(q):
                     temp = tempStrip[:, frame:(frame + 1)]
-                    tempo = imresize(temp, (strip_width, 1), interp='bilinear', mode='F')
+                    #print(temp)
+                    ### Old Scipy Module used imresize which is discontinued. 
+
+                    #tempo = imresize(temp, (strip_width, 1), interp='bilinear', mode='F')
+                    
+                    ### Replaced the imresize function to Pillow Image and Numpy.  
+                    tempo = np.array(Image.fromarray(obj=temp).resize(size=(1,strip_width),resample=Image.BILINEAR))
+                    #print(tempo)
                     tempo = 100 * tempo / max(tempo)
                     OurStrip[:, frame:(frame + 1)] = OurStrip[:, frame:(frame + 1)] + (weights[harm, dur] * tempo)
 
@@ -291,17 +298,14 @@ class pyENF:
 
 
 def main():
-    #mysignal = pyENF(filename="video_enf_extracted.wav", nominal=60, harmonic_multiples=1, duration=0.1,
-    #                 strip_index=0)
+    # This function is added for testing the functionality of the code base. A demo file is present in the Rec_demo folder.
     #reading the file before hand and passing the signal instead of just file name
-    filename = 'Recordings\Power Recordings\One day power recording\one_day_power_rec.wav'
+    filename = 'Rec_demo/power_recording.wav'
     fs = 1000
     signal0, fs = librosa.load(filename,sr=fs)
-    #print(signal0[0:10])
+    
     mysignal = pyENF(signal0=signal0, fs=fs, nominal=60, harmonic_multiples=1, duration=0.1,
                      strip_index=0)
-
-    # x, fs = mysignal.read_initial_data()
 
     spectro_strip, frequency_support = mysignal.compute_spectrogam_strips()
 
@@ -316,12 +320,6 @@ def main():
     plt.ylabel("Frequency (Hz)")
     plt.xlabel("Time (sec)")
     plt.show()
-    #print(ENF[:-5])
-    #print(frequency_support)
-    #print(weights)
-    # print(initial_frequency)
-    # print(((OurStripCell[0]).shape)[1])
-
-
+    
 if __name__ == '__main__':
     main()
