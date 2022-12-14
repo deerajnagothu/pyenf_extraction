@@ -8,6 +8,7 @@ import librosa
 import math
 from scipy.misc import imresize
 from PIL import Image
+import argparse
 
 class pyENF:
 
@@ -300,11 +301,22 @@ class pyENF:
 def main():
     # This function is added for testing the functionality of the code base. A demo file is present in the Rec_demo folder.
     #reading the file before hand and passing the signal instead of just file name
-    filename = 'Rec_demo/power_recording.wav'
+    
+    parser = argparse.ArgumentParser(description='ENF Estimation from Multimedia Recordings')
+
+    parser.add_argument("--file","--f", help="Input media recording filepath.",default='Rec_demo/power_recording.wav',type=str)
+    parser.add_argument("--nominal","--n", help="Nominal Frequency of the region of recording (50/60 Hz).",default=60,type=int)
+
+    args = parser.parse_args()
+
+    print("Processing "+args.file +" with Nominal frequency "+str(args.nominal))
+    
+    filename = args.file
     fs = 1000
+    nominal = args.nominal
     signal0, fs = librosa.load(filename,sr=fs)
     
-    mysignal = pyENF(signal0=signal0, fs=fs, nominal=60, harmonic_multiples=1, duration=0.1,
+    mysignal = pyENF(signal0=signal0, fs=fs, nominal=nominal, harmonic_multiples=1, duration=0.1,
                      strip_index=0)
 
     spectro_strip, frequency_support = mysignal.compute_spectrogam_strips()
@@ -315,10 +327,11 @@ def main():
 
     ENF = mysignal.compute_ENF_from_combined_strip(OurStripCell, initial_frequency)
 
-    plt.plot(ENF[:-7])
+    plt.plot(ENF[:-7],label="ENF")
     plt.title("ENF Signal")
     plt.ylabel("Frequency (Hz)")
     plt.xlabel("Time (sec)")
+    plt.legend(loc="lower right")
     plt.show()
     
 if __name__ == '__main__':
