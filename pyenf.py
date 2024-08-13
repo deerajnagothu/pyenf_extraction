@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import librosa
 import math
-from scipy.misc import imresize
 from PIL import Image
 import argparse
 

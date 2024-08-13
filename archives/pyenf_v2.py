@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import librosa
 import math
-from scipy.misc import imresize
 
 class pyENF:
 
@@ -252,7 +251,7 @@ class pyENF:
                 q = (np.shape(OurStrip))[1]
                 for frame in range(q):
                     temp = tempStrip[:,frame:(frame+1)]
-                    tempo = imresize(temp,(strip_width,1),interp='bilinear',mode='F')
+                    tempo = np.array(Image.fromarray(obj=temp).resize(size=(1,strip_width),resample=Image.BILINEAR))
                     tempo = 100 * tempo/max(tempo)
                     OurStrip[:,frame:(frame+1)] = OurStrip[:,frame:(frame+1)] + (weights[harm,dur] * tempo)
 
